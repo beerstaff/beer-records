@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -78,6 +78,7 @@ export default function App() {
   const [view, setView] = useState("home");
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [unsubscribeState, setUnsubscribeState] = useState(null); // null | "working" | "done" | "error"
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const fileInputRef = useRef(null);
@@ -95,6 +96,15 @@ export default function App() {
 
   useEffect(() => {
     loadAll();
+    const token = new URLSearchParams(window.location.search).get("unsubscribe");
+    if (token) {
+      setUnsubscribeState("working");
+      supabase
+        .from("subscribers")
+        .delete()
+        .eq("unsubscribe_token", token)
+        .then(({ error }) => setUnsubscribeState(error ? "error" : "done"));
+    }
   }, []);
 
   async function loadAll() {
@@ -234,6 +244,30 @@ export default function App() {
     }
   }
 
+  if (unsubscribeState === "working" || unsubscribeState === "done" || unsubscribeState === "error") {
+    return (
+      <div className="max-w-md mx-auto p-6 text-center mt-16">
+        {unsubscribeState === "working" && (
+          <p className="text-neutral-500 flex items-center justify-center gap-2">
+            <Loader2 className="animate-spin" size={18} /> Unsubscribing...
+          </p>
+        )}
+        {unsubscribeState === "done" && (
+          <>
+            <CheckCircle2 className="mx-auto text-green-600 mb-2" size={32} />
+            <p className="text-neutral-700">You've been unsubscribed from email updates.</p>
+          </>
+        )}
+        {unsubscribeState === "error" && (
+          <p className="text-red-600">Couldn't find that subscription — it may already be removed.</p>
+        )}
+        <a href={window.location.pathname} className="text-amber-700 text-sm hover:underline mt-4 inline-block">
+          Back to the site
+        </a>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-neutral-500 gap-2">
@@ -251,17 +285,25 @@ export default function App() {
             <Trophy size={22} />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-bold text-amber-950 leading-tight">The Book of Beer Records</h1>
+            <h1 className="text-lg sm:text-xl font-bold text-amber-950 leading-tight">Book of Guinless Records</h1>
             <p className="text-xs text-amber-700">A club record for every glass raised</p>
           </div>
         </button>
-        {view !== "submit" && (
-          <button
-            onClick={() => openSubmit(view === "category" ? selectedCategory : "")}
-            className="flex items-center gap-1 bg-amber-800 hover:bg-amber-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition flex-shrink-0"
-          >
-            <Plus size={16} /> New record
-          </button>
+        {view !== "submit" && view !== "subscribe" && (
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => setView("subscribe")}
+              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
+            >
+              <Mail size={16} /> Get updates
+            </button>
+            <button
+              onClick={() => openSubmit(view === "category" ? selectedCategory : "")}
+              className="flex items-center gap-1 bg-amber-800 hover:bg-amber-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition"
+            >
+              <Plus size={16} /> New record
+            </button>
+          </div>
         )}
       </header>
 
@@ -298,6 +340,8 @@ export default function App() {
         />
       )}
 
+      {view === "subscribe" && <SubscribeView onCancel={() => setView(selectedCategory ? "category" : "home")} />}
+
       {view === "submit" && (
         <SubmitView
           form={form}
@@ -314,6 +358,98 @@ export default function App() {
       )}
 
       <p className="text-center text-xs text-neutral-400 mt-8">Records are visible to everyone in the club.</p>
+    </div>
+  );
+}
+
+function SubscribeView({ onCancel }) {
+  const [email, setEmail] = useState("");
+  const [frequency, setFrequency] = useState("daily");
+  const [status, setStatus] = useState("idle"); // idle | saving | done | error
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setStatus("saving");
+    const { error } = await supabase
+      .from("subscribers")
+      .upsert({ email: email.trim().toLowerCase(), frequency }, { onConflict: "email" });
+    setStatus(error ? "error" : "done");
+  }
+
+  return (
+    <div className="max-w-md">
+      <button onClick={onCancel} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
+        <ArrowLeft size={15} /> Back
+      </button>
+      <h2 className="text-lg font-bold text-amber-950 mb-1">Get email updates</h2>
+      <p className="text-sm text-neutral-500 mb-4">Hear about new records as they're set.</p>
+
+      {status === "done" ? (
+        <div className="border border-green-200 bg-green-50 rounded-lg p-4 text-sm text-green-800 flex items-start gap-2">
+          <CheckCircle2 size={18} className="flex-shrink-0 mt-0.5" />
+          <span>
+            You're subscribed{" "}
+            {frequency === "instant" ? "to instant emails for every new record." : "to a daily digest of new records."}{" "}
+            Every email includes an unsubscribe link.
+          </span>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">Email address</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-2">How often?</label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm border border-amber-200 rounded-lg px-3 py-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="frequency"
+                  value="instant"
+                  checked={frequency === "instant"}
+                  onChange={() => setFrequency("instant")}
+                />
+                Instantly — one email per new record
+              </label>
+              <label className="flex items-center gap-2 text-sm border border-amber-200 rounded-lg px-3 py-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="frequency"
+                  value="daily"
+                  checked={frequency === "daily"}
+                  onChange={() => setFrequency("daily")}
+                />
+                Daily digest — one summary email per day
+              </label>
+            </div>
+          </div>
+
+          {status === "error" && (
+            <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2">
+              Something went wrong saving that. Try again.
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={status === "saving"}
+            className="w-full bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            {status === "saving" ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+            {status === "saving" ? "Saving..." : "Subscribe"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
