@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2 } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2 } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -244,6 +244,30 @@ export default function App() {
     }
   }
 
+  const DELETE_PASSCODE = "8332";
+
+  async function handleDelete(category, entryId) {
+    const entered = window.prompt("Enter the passcode to delete this record:");
+    if (entered === null) return; // cancelled
+    if (entered !== DELETE_PASSCODE) {
+      alert("Incorrect passcode. Record not deleted.");
+      return;
+    }
+
+    const previousEntries = recordsByCategory[category] || [];
+    setRecordsByCategory((prev) => ({
+      ...prev,
+      [category]: prev[category].filter((e) => e.id !== entryId),
+    }));
+
+    const { error } = await supabase.from("records").delete().eq("id", entryId);
+    if (error) {
+      // revert on failure
+      setRecordsByCategory((prev) => ({ ...prev, [category]: previousEntries }));
+      alert("Couldn't delete that record. Try again.");
+    }
+  }
+
   if (unsubscribeState === "working" || unsubscribeState === "done" || unsubscribeState === "error") {
     return (
       <div className="max-w-md mx-auto p-6 text-center mt-16">
@@ -337,6 +361,7 @@ export default function App() {
           onBack={() => setView("home")}
           onNewRecord={() => openSubmit(selectedCategory)}
           onReact={handleReact}
+          onDelete={handleDelete}
         />
       )}
 
@@ -600,7 +625,7 @@ function ReactionBar({ reactions, onReact, size = "normal", readOnly = false }) 
   );
 }
 
-function CategoryView({ category, entries, onBack, onNewRecord, onReact }) {
+function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelete }) {
   const [current, ...past] = entries;
   return (
     <div>
@@ -617,7 +642,14 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact }) {
           </button>
         </div>
       ) : (
-        <div className="border border-amber-200 rounded-xl p-4 bg-white">
+        <div className="border border-amber-200 rounded-xl p-4 bg-white relative">
+          <button
+            onClick={() => onDelete(category, current.id)}
+            title="Delete this record"
+            className="absolute top-3 right-3 text-neutral-300 hover:text-red-600 transition"
+          >
+            <Trash2 size={16} />
+          </button>
           <div className="flex flex-col sm:flex-row gap-4">
             <img
               src={current.photo}
@@ -626,7 +658,7 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact }) {
             />
             <div className="flex-1">
               <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Current record holder</p>
-              <h3 className="text-lg font-bold text-amber-950 mt-1">{current.title}</h3>
+              <h3 className="text-lg font-bold text-amber-950 mt-1 pr-6">{current.title}</h3>
               <p className="text-sm text-neutral-700 flex items-center gap-1 mt-1">
                 <User size={13} /> {current.holderName}
               </p>
@@ -645,9 +677,9 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact }) {
           <h4 className="text-sm font-semibold text-amber-900 mb-2">Past record holders</h4>
           <div className="space-y-2">
             {past.map((e) => (
-              <div key={e.id} className="flex gap-3 items-start border border-amber-100 rounded-lg p-2 bg-amber-50/40">
+              <div key={e.id} className="flex gap-3 items-start border border-amber-100 rounded-lg p-2 bg-amber-50/40 relative">
                 <img src={e.photo} alt={e.title} className="w-16 h-16 object-cover rounded-md bg-amber-100 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 pr-6">
                   <p className="text-sm font-medium text-amber-950 truncate">{e.title}</p>
                   <p className="text-xs text-neutral-500 flex items-center gap-1">
                     <User size={11} /> {e.holderName}
@@ -656,6 +688,13 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact }) {
                   </p>
                   <ReactionBar reactions={e.reactions} onReact={(key) => onReact(category, e.id, key)} size="small" />
                 </div>
+                <button
+                  onClick={() => onDelete(category, e.id)}
+                  title="Delete this record"
+                  className="absolute top-2 right-2 text-neutral-300 hover:text-red-600 transition"
+                >
+                  <Trash2 size={14} />
+                </button>
               </div>
             ))}
           </div>
