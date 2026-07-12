@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -65,6 +65,11 @@ function formatDate(iso) {
   }
 }
 
+function isMobileDevice() {
+  if (typeof navigator === "undefined") return false;
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
 export default function App() {
   const [categories, setCategories] = useState([]);
   const [recordsByCategory, setRecordsByCategory] = useState({});
@@ -72,6 +77,7 @@ export default function App() {
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState("home");
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const fileInputRef = useRef(null);
@@ -118,6 +124,7 @@ export default function App() {
       (recs || []).forEach((row) => {
         const entry = {
           id: row.id,
+          category: row.category,
           title: row.title,
           holderName: row.holder_name,
           description: row.description,
@@ -266,8 +273,14 @@ export default function App() {
 
       {view === "home" && (
         <HomeView
-          categories={categories}
+          categories={[...categories].sort((a, b) => {
+            const aTime = recordsByCategory[a]?.[0] ? new Date(recordsByCategory[a][0].date).getTime() : 0;
+            const bTime = recordsByCategory[b]?.[0] ? new Date(recordsByCategory[b][0].date).getTime() : 0;
+            return bTime - aTime;
+          })}
           records={recordsByCategory}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
           onSelect={(cat) => {
             setSelectedCategory(cat);
             setView("category");
@@ -316,51 +329,137 @@ function RecordThumb({ photo, alt }) {
   return <img src={photo} alt={alt} className="w-full h-40 object-cover rounded-lg bg-amber-100" />;
 }
 
-function HomeView({ categories, records, onSelect }) {
-  if (categories.length === 0) {
-    return <div className="text-center py-16 text-neutral-500">No categories yet. Be the first to set a record.</div>;
-  }
+function HomeView({ categories, records, onSelect, searchQuery, setSearchQuery }) {
+  const query = searchQuery.trim().toLowerCase();
+
+  const searchResults = query
+    ? Object.values(records)
+        .flat()
+        .filter((e) =>
+          [e.title, e.holderName, e.description, e.category].some((field) =>
+            (field || "").toLowerCase().includes(query)
+          )
+        )
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    : null;
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {categories.map((cat) => {
-        const entries = records[cat] || [];
-        const current = entries[0];
-        return (
+    <div>
+      <div className="relative mb-4">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search records, holders, categories..."
+          className="w-full border border-amber-200 rounded-lg pl-9 pr-8 py-2 text-sm"
+        />
+        {searchQuery && (
           <button
-            key={cat}
-            onClick={() => onSelect(cat)}
-            className="text-left border border-amber-200 rounded-xl p-3 hover:border-amber-400 hover:shadow-sm transition bg-white"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600"
           >
-            <RecordThumb photo={current && current.photo} alt={cat} />
-            <h3 className="mt-2 font-semibold text-amber-950 text-sm">{cat}</h3>
-            {current ? (
-              <p className="text-xs text-neutral-500 mt-1 flex items-center gap-1">
-                <User size={12} /> {current.holderName}
-              </p>
-            ) : (
-              <p className="text-xs text-neutral-400 mt-1 italic">No record set yet</p>
-            )}
+            <X size={16} />
           </button>
-        );
-      })}
+        )}
+      </div>
+
+      {searchResults ? (
+        searchResults.length === 0 ? (
+          <div className="text-center py-16 text-neutral-500">No records match "{searchQuery}".</div>
+        ) : (
+          <div className="space-y-2">
+            {searchResults.map((e) => (
+              <button
+                key={e.id}
+                onClick={() => onSelect(e.category)}
+                className="w-full flex gap-3 items-start text-left border border-amber-200 rounded-lg p-2 bg-white hover:border-amber-400 transition"
+              >
+                <img src={e.photo} alt={e.title} className="w-16 h-16 object-cover rounded-md bg-amber-100 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{e.category}</p>
+                  <p className="text-sm font-semibold text-amber-950 truncate">{e.title}</p>
+                  <p className="text-xs text-neutral-500 flex items-center gap-1">
+                    <User size={11} /> {e.holderName}
+                    <span className="mx-1">·</span>
+                    <Calendar size={11} /> {formatDate(e.date)}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )
+      ) : categories.length === 0 ? (
+        <div className="text-center py-16 text-neutral-500">No categories yet. Be the first to set a record.</div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {categories.map((cat) => {
+            const entries = records[cat] || [];
+            const current = entries[0];
+            return (
+              <button
+                key={cat}
+                onClick={() => onSelect(cat)}
+                className="text-left border border-amber-200 rounded-xl p-3 hover:border-amber-400 hover:shadow-sm transition bg-white"
+              >
+                <RecordThumb photo={current && current.photo} alt={cat} />
+                <h3 className="mt-2 font-semibold text-amber-950 text-sm">{cat}</h3>
+                {current ? (
+                  <>
+                    <p className="text-xs text-neutral-500 mt-1 flex items-center gap-1">
+                      <User size={12} /> {current.holderName}
+                    </p>
+                    <ReactionBar reactions={current.reactions} readOnly size="small" />
+                  </>
+                ) : (
+                  <p className="text-xs text-neutral-400 mt-1 italic">No record set yet</p>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-function ReactionBar({ reactions, onReact, size = "normal" }) {
+function ReactionBar({ reactions, onReact, size = "normal", readOnly = false }) {
   const counts = { ...emptyReactions(), ...reactions };
+  const active = REACTIONS.filter((r) => !readOnly || counts[r.key] > 0);
+  if (readOnly && active.length === 0) return null;
+
   const btnClass =
     size === "small"
       ? "flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border border-amber-200 hover:bg-amber-100 transition"
       : "flex items-center gap-1 text-sm px-2 py-1 rounded-full border border-amber-200 hover:bg-amber-100 transition";
+  const spanClass =
+    size === "small"
+      ? "flex items-center gap-0.5 text-xs px-1.5 py-0.5 rounded-full border border-amber-100 bg-amber-50"
+      : "flex items-center gap-1 text-sm px-2 py-1 rounded-full border border-amber-100 bg-amber-50";
+
   return (
     <div className="flex flex-wrap gap-1.5 mt-2">
-      {REACTIONS.map((r) => (
-        <button key={r.key} type="button" onClick={() => onReact(r.key)} className={btnClass}>
-          <span>{r.emoji}</span>
-          {counts[r.key] > 0 && <span className="text-neutral-500">{counts[r.key]}</span>}
-        </button>
-      ))}
+      {active.map((r) =>
+        readOnly ? (
+          <span key={r.key} className={spanClass}>
+            <span>{r.emoji}</span>
+            <span className="text-neutral-500">{counts[r.key]}</span>
+          </span>
+        ) : (
+          <button
+            key={r.key}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReact(r.key);
+            }}
+            className={btnClass}
+          >
+            <span>{r.emoji}</span>
+            {counts[r.key] > 0 && <span className="text-neutral-500">{counts[r.key]}</span>}
+          </button>
+        )
+      )}
     </div>
   );
 }
@@ -514,11 +613,19 @@ function SubmitView({
             accept="image/*"
             capture="environment"
             onChange={onPhotoChange}
-            className="text-sm w-full"
+            className="hidden"
           />
-          <p className="text-xs text-neutral-400 mt-1">
-            On a phone this opens your camera. Tap "choose file" instead if you'd rather pick an existing photo.
-          </p>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            className="flex items-center gap-2 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium"
+          >
+            <Camera size={16} />
+            {isMobileDevice() ? "Open camera" : "Choose photo"}
+          </button>
+          {isMobileDevice() && (
+            <p className="text-xs text-neutral-400 mt-1">Prefer an existing photo? Your camera app usually has a gallery option too.</p>
+          )}
           {photoProcessing && (
             <p className="text-xs text-neutral-400 mt-1 flex items-center gap-1">
               <Loader2 size={12} className="animate-spin" /> Processing photo...
