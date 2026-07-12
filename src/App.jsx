@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2 } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -268,6 +268,40 @@ export default function App() {
     }
   }
 
+  async function handleRenameCategory(oldName, newNameRaw) {
+    const newName = newNameRaw.trim();
+    if (!newName || newName === oldName) return { ok: true };
+
+    if (categories.some((c) => c !== oldName && c.toLowerCase() === newName.toLowerCase())) {
+      return { ok: false, message: "A category with that name already exists." };
+    }
+
+    const previousCategories = categories;
+    const previousRecords = recordsByCategory;
+
+    // optimistic update
+    setCategories((prev) => prev.map((c) => (c === oldName ? newName : c)));
+    setRecordsByCategory((prev) => {
+      const next = { ...prev };
+      const entries = (next[oldName] || []).map((e) => ({ ...e, category: newName }));
+      delete next[oldName];
+      next[newName] = entries;
+      return next;
+    });
+    if (selectedCategory === oldName) setSelectedCategory(newName);
+
+    const { error: catErr } = await supabase.from("categories").update({ name: newName }).eq("name", oldName);
+    const { error: recErr } = await supabase.from("records").update({ category: newName }).eq("category", oldName);
+
+    if (catErr || recErr) {
+      setCategories(previousCategories);
+      setRecordsByCategory(previousRecords);
+      if (selectedCategory === newName) setSelectedCategory(oldName);
+      return { ok: false, message: "Couldn't save the rename. Try again." };
+    }
+    return { ok: true };
+  }
+
   if (unsubscribeState === "working" || unsubscribeState === "done" || unsubscribeState === "error") {
     return (
       <div className="max-w-md mx-auto p-6 text-center mt-16">
@@ -362,6 +396,7 @@ export default function App() {
           onNewRecord={() => openSubmit(selectedCategory)}
           onReact={handleReact}
           onDelete={handleDelete}
+          onRename={handleRenameCategory}
         />
       )}
 
@@ -625,14 +660,78 @@ function ReactionBar({ reactions, onReact, size = "normal", readOnly = false }) 
   );
 }
 
-function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelete }) {
+function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelete, onRename }) {
   const [current, ...past] = entries;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(category);
+  const [renameError, setRenameError] = useState("");
+  const [renaming, setRenaming] = useState(false);
+
+  async function saveRename() {
+    setRenaming(true);
+    setRenameError("");
+    const result = await onRename(category, draft);
+    setRenaming(false);
+    if (result.ok) {
+      setEditing(false);
+    } else {
+      setRenameError(result.message || "Couldn't rename category.");
+    }
+  }
+
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
         <ArrowLeft size={15} /> All categories
       </button>
-      <h2 className="text-lg font-bold text-amber-950 mb-3">{category}</h2>
+
+      {editing ? (
+        <div className="mb-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className="text-lg font-bold text-amber-950 border border-amber-300 rounded-lg px-2 py-1 flex-1"
+              autoFocus
+            />
+            <button
+              onClick={saveRename}
+              disabled={renaming}
+              className="text-green-700 hover:bg-green-50 rounded-lg p-1.5 disabled:opacity-50"
+              title="Save"
+            >
+              {renaming ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />}
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setDraft(category);
+                setRenameError("");
+              }}
+              className="text-neutral-400 hover:bg-neutral-100 rounded-lg p-1.5"
+              title="Cancel"
+            >
+              <X size={18} />
+            </button>
+          </div>
+          {renameError && <p className="text-xs text-red-600 mt-1">{renameError}</p>}
+        </div>
+      ) : (
+        <h2 className="text-lg font-bold text-amber-950 mb-3 flex items-center gap-2">
+          {category}
+          <button
+            onClick={() => {
+              setDraft(category);
+              setEditing(true);
+            }}
+            className="text-neutral-300 hover:text-amber-700 transition"
+            title="Rename category"
+          >
+            <Pencil size={15} />
+          </button>
+        </h2>
+      )}
 
       {!current ? (
         <div className="text-center py-12 border border-dashed border-amber-300 rounded-xl text-neutral-500">
