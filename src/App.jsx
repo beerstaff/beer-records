@@ -53,6 +53,22 @@ function resizeImage(file, maxDim = 900, quality = 0.75) {
   });
 }
 
+const POSTING_RULES = [
+  "Be honest — records should be genuine, not made up for a laugh.",
+  "Include a real photo as evidence, not a stock image or someone else's photo.",
+  "Keep descriptions and photos appropriate — nothing offensive, cruel, or NSFW.",
+  "Records and comments should stay good-natured. No targeting or embarrassing other members without their consent.",
+  "Drink responsibly — this is meant to be fun, not a reason to overdo it.",
+];
+
+const RECORD_RULES = [
+  "A record must be about a pint or pint-drinking (strength, location, temperature, altitude, speed, and so on).",
+  "New submissions become the current holder for that category — the previous holder moves into the past holders list automatically.",
+  "You can create a brand new category if yours doesn't fit an existing one.",
+  "Records can be beaten at any time by a better submission in the same category — that's the whole point.",
+  "Anyone can react to a record with an emoji, but be a good sport about it.",
+];
+
 function formatDate(iso) {
   try {
     return new Date(iso).toLocaleDateString(undefined, {
@@ -75,7 +91,13 @@ export default function App() {
   const [recordsByCategory, setRecordsByCategory] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
-  const [view, setView] = useState("home");
+  const [view, setView] = useState(() => {
+    try {
+      return localStorage.getItem("hasSeenRules") === "true" ? "home" : "rules";
+    } catch {
+      return "home";
+    }
+  });
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [unsubscribeState, setUnsubscribeState] = useState(null); // null | "working" | "done" | "error"
@@ -347,7 +369,7 @@ export default function App() {
             <p className="text-xs text-amber-700">A club record for every glass raised</p>
           </div>
         </button>
-        {view !== "submit" && view !== "subscribe" && (
+        {view !== "submit" && view !== "subscribe" && view !== "rules" && (
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => setView("subscribe")}
@@ -400,6 +422,19 @@ export default function App() {
         />
       )}
 
+      {view === "rules" && (
+        <RulesView
+          onContinue={() => {
+            try {
+              localStorage.setItem("hasSeenRules", "true");
+            } catch {
+              // ignore storage errors, just proceed
+            }
+            setView("home");
+          }}
+        />
+      )}
+
       {view === "subscribe" && <SubscribeView onCancel={() => setView(selectedCategory ? "category" : "home")} />}
 
       {view === "submit" && (
@@ -417,7 +452,56 @@ export default function App() {
         />
       )}
 
-      <p className="text-center text-xs text-neutral-400 mt-8">Records are visible to everyone in the club.</p>
+      {view !== "rules" && (
+        <p className="text-center text-xs text-neutral-400 mt-8">
+          Records are visible to everyone in the club. ·{" "}
+          <button onClick={() => setView("rules")} className="underline hover:text-neutral-600">
+            Posting &amp; record rules
+          </button>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RulesView({ onContinue }) {
+  return (
+    <div className="max-w-lg mx-auto">
+      <div className="flex items-center gap-2 mb-4">
+        <Trophy className="text-amber-800" size={22} />
+        <h2 className="text-lg font-bold text-amber-950">Welcome to the club</h2>
+      </div>
+
+      <div className="mb-5">
+        <h3 className="text-sm font-semibold text-amber-900 mb-2">Posting rules</h3>
+        <ul className="space-y-1.5 text-sm text-neutral-700">
+          {POSTING_RULES.map((rule, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="text-amber-400">•</span>
+              <span>{rule}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-amber-900 mb-2">Record rules</h3>
+        <ul className="space-y-1.5 text-sm text-neutral-700">
+          {RECORD_RULES.map((rule, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="text-amber-400">•</span>
+              <span>{rule}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <button
+        onClick={onContinue}
+        className="w-full bg-amber-800 hover:bg-amber-900 text-white px-4 py-2.5 rounded-lg text-sm font-semibold"
+      >
+        Got it, take me to the records
+      </button>
     </div>
   );
 }
