@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -370,7 +370,13 @@ export default function App() {
           </div>
         </button>
         {view !== "submit" && view !== "subscribe" && view !== "rules" && (
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              onClick={() => setView("leaderboard")}
+              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
+            >
+              <Medal size={16} /> Leaderboard
+            </button>
             <button
               onClick={() => setView("subscribe")}
               className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
@@ -422,6 +428,10 @@ export default function App() {
         />
       )}
 
+      {view === "leaderboard" && (
+        <LeaderboardView records={recordsByCategory} onBack={() => setView("home")} />
+      )}
+
       {view === "rules" && (
         <RulesView
           onContinue={() => {
@@ -460,6 +470,97 @@ export default function App() {
           </button>
         </p>
       )}
+    </div>
+  );
+}
+
+function LeaderboardView({ records, onBack }) {
+  const allEntries = Object.values(records).flat();
+
+  const currentHolders = Object.values(records)
+    .map((entries) => entries[0])
+    .filter(Boolean);
+
+  const recordCounts = {};
+  currentHolders.forEach((e) => {
+    recordCounts[e.holderName] = (recordCounts[e.holderName] || 0) + 1;
+  });
+
+  const reactionCounts = {};
+  allEntries.forEach((e) => {
+    const total = Object.values(e.reactions || {}).reduce((sum, n) => sum + n, 0);
+    reactionCounts[e.holderName] = (reactionCounts[e.holderName] || 0) + total;
+  });
+
+  const topRecordHolders = Object.entries(recordCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const topReactionEarners = Object.entries(reactionCounts)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
+        <ArrowLeft size={15} /> All categories
+      </button>
+      <h2 className="text-lg font-bold text-amber-950 mb-4 flex items-center gap-2">
+        <Medal size={20} /> Leaderboard
+      </h2>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div>
+          <h3 className="text-sm font-semibold text-amber-900 mb-2">Most records currently held</h3>
+          {topRecordHolders.length === 0 ? (
+            <p className="text-sm text-neutral-400 italic">No records yet.</p>
+          ) : (
+            <ol className="space-y-1.5">
+              {topRecordHolders.map(([name, count], i) => (
+                <li
+                  key={name}
+                  className="flex items-center justify-between text-sm border border-amber-100 rounded-lg px-3 py-2 bg-white"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="w-6 text-center">{medals[i] || i + 1}</span>
+                    <span className="font-medium text-amber-950">{name}</span>
+                  </span>
+                  <span className="text-neutral-500">{count}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+
+        <div>
+          <h3 className="text-sm font-semibold text-amber-900 mb-2">Most reactions received</h3>
+          {topReactionEarners.length === 0 ? (
+            <p className="text-sm text-neutral-400 italic">No reactions yet.</p>
+          ) : (
+            <ol className="space-y-1.5">
+              {topReactionEarners.map(([name, count], i) => (
+                <li
+                  key={name}
+                  className="flex items-center justify-between text-sm border border-amber-100 rounded-lg px-3 py-2 bg-white"
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="w-6 text-center">{medals[i] || i + 1}</span>
+                    <span className="font-medium text-amber-950">{name}</span>
+                  </span>
+                  <span className="text-neutral-500">{count}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-neutral-400 mt-4">
+        Rankings are based on the name typed into "your name" when submitting — spell it consistently to get proper credit!
+      </p>
     </div>
   );
 }
