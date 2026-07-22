@@ -86,6 +86,40 @@ function isMobileDevice() {
   return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+function levenshtein(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...Array(n).fill(0)]);
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] =
+        a[i - 1] === b[j - 1]
+          ? dp[i - 1][j - 1]
+          : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function findSimilarCategory(input, categories) {
+  const clean = input.trim().toLowerCase();
+  if (!clean) return null;
+  let best = null;
+  let bestScore = 0;
+  for (const cat of categories) {
+    const catClean = cat.toLowerCase();
+    if (catClean === clean) continue; // exact match isn't a "similar" warning, it's just the same one
+    const maxLen = Math.max(clean.length, catClean.length, 1);
+    const score = 1 - levenshtein(clean, catClean) / maxLen;
+    if (score > bestScore) {
+      bestScore = score;
+      best = cat;
+    }
+  }
+  return bestScore >= 0.55 ? best : null;
+}
+
 export default function App() {
   const [categories, setCategories] = useState([]);
   const [recordsByCategory, setRecordsByCategory] = useState({});
@@ -1030,6 +1064,24 @@ function SubmitView({
             onChange={(e) => setForm((f) => ({ ...f, newCategory: e.target.value, categoryChoice: "" }))}
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm mt-1"
           />
+          {(() => {
+            const similar = findSimilarCategory(form.newCategory, categories);
+            if (!similar) return null;
+            return (
+              <div className="mt-2 flex items-start gap-2 text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <span className="text-amber-700 flex-1">
+                  This looks similar to an existing category, <strong>"{similar}"</strong>. Might already be the same record.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, categoryChoice: similar, newCategory: "" }))}
+                  className="text-amber-800 underline whitespace-nowrap flex-shrink-0"
+                >
+                  Use that one
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         <div>
