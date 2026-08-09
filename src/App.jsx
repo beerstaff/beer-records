@@ -650,10 +650,29 @@ function SubscribeView({ onCancel }) {
     e.preventDefault();
     if (!email.trim()) return;
     setStatus("saving");
-    const { error } = await supabase
+    const cleanEmail = email.trim().toLowerCase();
+
+    const { error: insertError } = await supabase
       .from("subscribers")
-      .upsert({ email: email.trim().toLowerCase(), frequency }, { onConflict: "email" });
-    setStatus(error ? "error" : "done");
+      .insert({ email: cleanEmail, frequency });
+
+    if (!insertError) {
+      setStatus("done");
+      return;
+    }
+
+    // 23505 = unique constraint violation, meaning this email is already
+    // subscribed — switch to updating their frequency preference instead.
+    if (insertError.code === "23505") {
+      const { error: updateError } = await supabase
+        .from("subscribers")
+        .update({ frequency })
+        .eq("email", cleanEmail);
+      setStatus(updateError ? "error" : "done");
+      return;
+    }
+
+    setStatus("error");
   }
 
   return (
