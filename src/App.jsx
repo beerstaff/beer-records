@@ -425,43 +425,59 @@ export default function App() {
 
   return (
     <div className="max-w-3xl mx-auto p-4 font-sans">
-      <header className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-amber-200">
-        <button className="flex items-center gap-2 text-left" onClick={() => setView("home")}>
-          <div className="bg-amber-800 text-amber-50 rounded-full p-2 flex-shrink-0">
-            <Trophy size={22} />
-          </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-bold text-amber-950 leading-tight">Book of Guinless Records</h1>
-            <p className="text-xs text-amber-700">A club record for every glass raised</p>
-          </div>
-        </button>
-        {view !== "submit" && view !== "subscribe" && view !== "rules" && view !== "addLegend" && (
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            <button
-              onClick={() => setView("legends")}
-              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
-            >
-              <Scroll size={16} /> Legends
-            </button>
-            <button
-              onClick={() => setView("leaderboard")}
-              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
-            >
-              <Medal size={16} /> Leaderboard
-            </button>
-            <button
-              onClick={() => setView("subscribe")}
-              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
-            >
-              <Mail size={16} /> Get updates
-            </button>
-            <button
-              onClick={() => openSubmit(view === "category" ? selectedCategory : "")}
-              className="flex items-center gap-1 bg-amber-800 hover:bg-amber-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition"
-            >
-              <Plus size={16} /> New record
-            </button>
-          </div>
+      <header className="mb-4 pb-4 border-b border-amber-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button className="flex items-center gap-2 text-left" onClick={() => setView("home")}>
+            <div className="bg-amber-800 text-amber-50 rounded-full p-2 flex-shrink-0">
+              <Trophy size={22} />
+            </div>
+            <div>
+              <h1 className="text-lg sm:text-xl font-bold text-amber-950 leading-tight">Book of Guinless Records</h1>
+              <p className="text-xs text-amber-700">A club record for every glass raised</p>
+            </div>
+          </button>
+          {view !== "submit" && view !== "subscribe" && view !== "rules" && view !== "addLegend" && (
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+              <button
+                onClick={() => setView("subscribe")}
+                className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
+              >
+                <Mail size={16} /> Get updates
+              </button>
+              <button
+                onClick={() => openSubmit(view === "category" ? selectedCategory : "")}
+                className="flex items-center gap-1 bg-amber-800 hover:bg-amber-900 text-white px-3 py-2 rounded-lg text-sm font-medium transition"
+              >
+                <Plus size={16} /> New record
+              </button>
+            </div>
+          )}
+        </div>
+
+        {(view === "home" || view === "category" || view === "legends" || view === "leaderboard") && (
+          <nav className="flex gap-1 mt-4 -mb-4 border-b border-amber-100">
+            {[
+              { key: "home", label: "Records", icon: Trophy, matches: ["home", "category"] },
+              { key: "legends", label: "Legends", icon: Scroll, matches: ["legends"] },
+              { key: "leaderboard", label: "Leaderboard", icon: Medal, matches: ["leaderboard"] },
+            ].map((tab) => {
+              const isActive = tab.matches.includes(view);
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setView(tab.key)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition ${
+                    isActive
+                      ? "border-amber-800 text-amber-900"
+                      : "border-transparent text-neutral-500 hover:text-amber-700"
+                  }`}
+                >
+                  <Icon size={15} /> {tab.label}
+                </button>
+              );
+            })}
+          </nav>
         )}
       </header>
 
