@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll } from "lucide-react";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -123,6 +123,7 @@ function findSimilarCategory(input, categories) {
 export default function App() {
   const [categories, setCategories] = useState([]);
   const [recordsByCategory, setRecordsByCategory] = useState({});
+  const [legends, setLegends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => {
@@ -204,6 +205,14 @@ export default function App() {
 
       setCategories(categoryNames);
       setRecordsByCategory(grouped);
+
+      const { data: legendRows, error: legendErr } = await supabase
+        .from("legends")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (!legendErr) {
+        setLegends(legendRows || []);
+      }
     } catch (e) {
       setLoadError(
         "Couldn't connect to the database. Check your Supabase URL/key in .env are correct and the tables exist."
@@ -358,6 +367,29 @@ export default function App() {
     return { ok: true };
   }
 
+  async function handleAddLegend(legend) {
+    const { data, error } = await supabase.from("legends").insert(legend).select().single();
+    if (error) return { ok: false, message: "Couldn't save that legend. Try again." };
+    setLegends((prev) => [data, ...prev]);
+    return { ok: true };
+  }
+
+  async function handleDeleteLegend(id) {
+    const entered = window.prompt("Enter the passcode to delete this legend:");
+    if (entered === null) return;
+    if (entered !== DELETE_PASSCODE) {
+      alert("Incorrect passcode. Not deleted.");
+      return;
+    }
+    const previous = legends;
+    setLegends((prev) => prev.filter((l) => l.id !== id));
+    const { error } = await supabase.from("legends").delete().eq("id", id);
+    if (error) {
+      setLegends(previous);
+      alert("Couldn't delete that legend. Try again.");
+    }
+  }
+
   if (unsubscribeState === "working" || unsubscribeState === "done" || unsubscribeState === "error") {
     return (
       <div className="max-w-md mx-auto p-6 text-center mt-16">
@@ -403,8 +435,14 @@ export default function App() {
             <p className="text-xs text-amber-700">A club record for every glass raised</p>
           </div>
         </button>
-        {view !== "submit" && view !== "subscribe" && view !== "rules" && (
+        {view !== "submit" && view !== "subscribe" && view !== "rules" && view !== "addLegend" && (
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            <button
+              onClick={() => setView("legends")}
+              className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
+            >
+              <Scroll size={16} /> Legends
+            </button>
             <button
               onClick={() => setView("leaderboard")}
               className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
@@ -462,6 +500,19 @@ export default function App() {
         />
       )}
 
+      {view === "legends" && (
+        <LegendsView
+          legends={legends}
+          onBack={() => setView("home")}
+          onAdd={() => setView("addLegend")}
+          onDelete={handleDeleteLegend}
+        />
+      )}
+
+      {view === "addLegend" && (
+        <AddLegendView onCancel={() => setView("legends")} onSubmit={handleAddLegend} onDone={() => setView("legends")} />
+      )}
+
       {view === "leaderboard" && (
         <LeaderboardView records={recordsByCategory} onBack={() => setView("home")} />
       )}
@@ -505,6 +556,234 @@ export default function App() {
         </p>
       )}
     </div>
+  );
+}
+
+function LegendsView({ legends, onBack, onAdd, onDelete }) {
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
+        <ArrowLeft size={15} /> All categories
+      </button>
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-lg font-bold text-amber-950 flex items-center gap-2">
+          <Scroll size={20} /> Legends
+        </h2>
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-1 bg-amber-800 hover:bg-amber-900 text-white px-3 py-1.5 rounded-lg text-sm font-medium"
+        >
+          <Plus size={15} /> Add a legend
+        </button>
+      </div>
+      <p className="text-sm text-neutral-500 mb-4">
+        The archive — records set before this site existed. These don't compete for "current holder," they're just here for posterity.
+      </p>
+
+      {legends.length === 0 ? (
+        <div className="text-center py-16 text-neutral-500 border border-dashed border-amber-300 rounded-xl">
+          No legends added yet. If there's an old record from before the site, add it here.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {legends.map((l) => (
+            <div key={l.id} className="flex gap-3 items-start border border-amber-200 rounded-xl p-3 bg-white relative">
+              {l.photo ? (
+                <img src={l.photo} alt={l.title} className="w-20 h-20 object-cover rounded-lg bg-amber-100 flex-shrink-0" />
+              ) : (
+                <div className="w-20 h-20 rounded-lg bg-amber-100 flex items-center justify-center text-amber-400 flex-shrink-0">
+                  <Scroll size={24} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1 pr-6">
+                <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{l.category_label}</p>
+                <p className="text-sm font-semibold text-amber-950">{l.title}</p>
+                <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
+                  <User size={11} /> {l.holder_name}
+                  {l.era && (
+                    <>
+                      <span className="mx-1">·</span>
+                      <Calendar size={11} /> {l.era}
+                    </>
+                  )}
+                </p>
+                <p className="text-sm text-neutral-600 mt-1">{l.description}</p>
+              </div>
+              <button
+                onClick={() => onDelete(l.id)}
+                title="Delete this legend"
+                className="absolute top-2 right-2 text-neutral-300 hover:text-red-600 transition"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddLegendView({ onCancel, onSubmit, onDone }) {
+  const [title, setTitle] = useState("");
+  const [holderName, setHolderName] = useState("");
+  const [categoryLabel, setCategoryLabel] = useState("");
+  const [era, setEra] = useState("");
+  const [description, setDescription] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const fileInputRef = useRef(null);
+
+  async function handlePhotoChange(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setPhotoProcessing(true);
+    try {
+      const dataUrl = await resizeImage(file);
+      setPhoto(dataUrl);
+      setPhotoPreview(dataUrl);
+    } catch {
+      setError("Couldn't process that image, try a different photo.");
+    } finally {
+      setPhotoProcessing(false);
+    }
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!title.trim() || !holderName.trim() || !categoryLabel.trim() || !description.trim()) {
+      setError("Fill in the title, name, category, and description — photo and era are optional since it's an old record.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    const result = await onSubmit({
+      title: title.trim(),
+      holder_name: holderName.trim(),
+      category_label: categoryLabel.trim(),
+      era: era.trim() || null,
+      description: description.trim(),
+      photo: photo || null,
+    });
+    setSaving(false);
+    if (result.ok) {
+      onDone();
+    } else {
+      setError(result.message || "Something went wrong. Try again.");
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="max-w-lg">
+      <button type="button" onClick={onCancel} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
+        <ArrowLeft size={15} /> Cancel
+      </button>
+      <h2 className="text-lg font-bold text-amber-950 mb-1">Add a legend</h2>
+      <p className="text-sm text-neutral-500 mb-4">
+        For records from before the site existed. A photo isn't required if one doesn't survive.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Category / what it was for</label>
+          <input
+            type="text"
+            value={categoryLabel}
+            onChange={(e) => setCategoryLabel(e.target.value)}
+            placeholder='e.g. "Strongest Pint Drunk"'
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Record title</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Who held it</label>
+          <input
+            type="text"
+            value={holderName}
+            onChange={(e) => setHolderName(e.target.value)}
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">When (roughly) — optional</label>
+          <input
+            type="text"
+            value={era}
+            onChange={(e) => setEra(e.target.value)}
+            placeholder='e.g. "circa 2018" or "Christmas 2015"'
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Description</label>
+          <textarea
+            rows={3}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">Photo (optional)</label>
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            className="flex items-center gap-2 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium"
+          >
+            <Camera size={16} /> {isMobileDevice() ? "Open camera" : "Choose photo"}
+          </button>
+          {photoProcessing && (
+            <p className="text-xs text-neutral-400 mt-1 flex items-center gap-1">
+              <Loader2 size={12} className="animate-spin" /> Processing photo...
+            </p>
+          )}
+          {photoPreview && (
+            <div className="relative mt-2 inline-block">
+              <img src={photoPreview} alt="Preview" className="w-32 h-32 object-cover rounded-lg border border-amber-200" />
+              <button
+                type="button"
+                onClick={() => {
+                  setPhoto(null);
+                  setPhotoPreview(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="absolute -top-2 -right-2 bg-white border border-amber-300 rounded-full p-0.5"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+
+        <button
+          type="submit"
+          disabled={saving || photoProcessing}
+          className="w-full bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+        >
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Scroll size={16} />}
+          {saving ? "Saving..." : "Add to the archive"}
+        </button>
+      </div>
+    </form>
   );
 }
 
