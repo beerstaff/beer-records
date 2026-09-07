@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll } from "lucide-react";
 import { supabase } from "./supabaseClient";
+import { Analytics } from "@vercel/analytics/react";
 
 const DEFAULT_CATEGORIES = [
   "Strongest Pint Drunk",
@@ -571,6 +572,7 @@ export default function App() {
           </button>
         </p>
       )}
+      <Analytics />
     </div>
   );
 }
