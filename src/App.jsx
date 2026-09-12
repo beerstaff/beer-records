@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll, MapPin } from "lucide-react";
 import { supabase } from "./supabaseClient";
-import { Analytics } from "@vercel/analytics/react";
 
 const DEFAULT_CATEGORIES = [
   "Strongest Pint Drunk",
@@ -146,7 +145,11 @@ export default function App() {
     newCategory: "",
     title: "",
     holderName: "",
+    holderEmail: "",
     description: "",
+    locationLabel: "",
+    latitude: null,
+    longitude: null,
     photo: null,
     photoPreview: null,
   });
@@ -177,7 +180,7 @@ export default function App() {
 
       const { data: recs, error: recErr } = await supabase
         .from("records")
-        .select("*")
+        .select("id, category, title, holder_name, description, photo, reactions, created_at, location_label, latitude, longitude")
         .order("created_at", { ascending: false });
       if (recErr) throw recErr;
 
@@ -199,6 +202,9 @@ export default function App() {
           photo: row.photo,
           date: row.created_at,
           reactions: row.reactions || emptyReactions(),
+          locationLabel: row.location_label,
+          latitude: row.latitude,
+          longitude: row.longitude,
         };
         grouped[row.category] = grouped[row.category] || [];
         grouped[row.category].push(entry);
@@ -229,12 +235,32 @@ export default function App() {
       newCategory: "",
       title: "",
       holderName: "",
+      holderEmail: "",
       description: "",
+      locationLabel: "",
+      latitude: null,
+      longitude: null,
       photo: null,
       photoPreview: null,
     });
     setSaveError("");
     setView("submit");
+  }
+
+  function handleUseLocation(onResult, onError) {
+    if (!navigator.geolocation) {
+      onError("Location isn't available on this device/browser.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        onResult(position.coords.latitude, position.coords.longitude);
+      },
+      () => {
+        onError("Couldn't get your location — you may need to allow location access.");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   }
 
   async function handlePhotoChange(e) {
@@ -272,9 +298,13 @@ export default function App() {
         category,
         title: form.title.trim(),
         holder_name: form.holderName.trim(),
+        holder_email: form.holderEmail.trim() || null,
         description: form.description.trim(),
         photo: form.photo,
         reactions: emptyReactions(),
+        location_label: form.locationLabel.trim() || null,
+        latitude: form.latitude,
+        longitude: form.longitude,
       });
       if (recErr) throw recErr;
 
@@ -561,6 +591,7 @@ export default function App() {
           saving={saving}
           saveError={saveError}
           fileInputRef={fileInputRef}
+          onUseLocation={handleUseLocation}
         />
       )}
 
@@ -572,7 +603,6 @@ export default function App() {
           </button>
         </p>
       )}
-      <Analytics />
     </div>
   );
 }
@@ -1067,7 +1097,7 @@ function HomeView({ categories, records, onSelect, searchQuery, setSearchQuery }
     ? Object.values(records)
         .flat()
         .filter((e) =>
-          [e.title, e.holderName, e.description, e.category].some((field) =>
+          [e.title, e.holderName, e.description, e.category, e.locationLabel].some((field) =>
             (field || "").toLowerCase().includes(query)
           )
         )
@@ -1195,6 +1225,31 @@ function ReactionBar({ reactions, onReact, size = "normal", readOnly = false }) 
   );
 }
 
+function LocationLine({ entry, size = "normal" }) {
+  if (!entry.locationLabel && !(entry.latitude && entry.longitude)) return null;
+  const textClass = size === "small" ? "text-xs" : "text-sm";
+  const mapUrl =
+    entry.latitude && entry.longitude ? `https://www.google.com/maps?q=${entry.latitude},${entry.longitude}` : null;
+
+  return (
+    <p className={`text-neutral-500 flex items-center gap-1 mt-0.5 ${textClass}`}>
+      <MapPin size={size === "small" ? 11 : 12} />
+      {entry.locationLabel || "Location"}
+      {mapUrl && (
+        <a
+          href={mapUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-amber-700 underline ml-1"
+          onClick={(e) => e.stopPropagation()}
+        >
+          view on map
+        </a>
+      )}
+    </p>
+  );
+}
+
 function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelete, onRename }) {
   const [current, ...past] = entries;
   const [editing, setEditing] = useState(false);
@@ -1299,6 +1354,7 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelet
               <p className="text-xs text-neutral-400 flex items-center gap-1 mt-0.5">
                 <Calendar size={12} /> {formatDate(current.date)}
               </p>
+              <LocationLine entry={current} />
               <p className="text-sm text-neutral-600 mt-2 whitespace-pre-wrap">{current.description}</p>
               <ReactionBar reactions={current.reactions} onReact={(key) => onReact(category, current.id, key)} />
             </div>
@@ -1320,6 +1376,7 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelet
                     <span className="mx-1">·</span>
                     <Calendar size={11} /> {formatDate(e.date)}
                   </p>
+                  <LocationLine entry={e} size="small" />
                   <ReactionBar reactions={e.reactions} onReact={(key) => onReact(category, e.id, key)} size="small" />
                 </div>
                 <button
@@ -1349,7 +1406,10 @@ function SubmitView({
   saving,
   saveError,
   fileInputRef,
+  onUseLocation,
 }) {
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
   return (
     <form onSubmit={onSubmit} className="max-w-lg">
       <button type="button" onClick={onCancel} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
@@ -1412,6 +1472,42 @@ function SubmitView({
         </div>
 
         <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">
+            Location <span className="text-neutral-400 font-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            placeholder='e.g. "Newcastle" or "Ben Nevis summit"'
+            value={form.locationLabel}
+            onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setLocating(true);
+              setLocationError("");
+              onUseLocation(
+                (lat, lng) => {
+                  setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
+                  setLocating(false);
+                },
+                (message) => {
+                  setLocationError(message);
+                  setLocating(false);
+                }
+              );
+            }}
+            disabled={locating}
+            className="flex items-center gap-1.5 mt-2 text-xs border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60 px-2.5 py-1.5 rounded-lg font-medium"
+          >
+            {locating ? <Loader2 size={13} className="animate-spin" /> : <MapPin size={13} />}
+            {locating ? "Getting location..." : form.latitude ? "Location captured ✓" : "Use my current location"}
+          </button>
+          {locationError && <p className="text-xs text-red-600 mt-1">{locationError}</p>}
+        </div>
+
+        <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1">Your name</label>
           <input
             type="text"
@@ -1419,6 +1515,22 @@ function SubmitView({
             onChange={(e) => setForm((f) => ({ ...f, holderName: e.target.value }))}
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">
+            Your email <span className="text-neutral-400 font-normal">(optional)</span>
+          </label>
+          <input
+            type="email"
+            value={form.holderEmail}
+            onChange={(e) => setForm((f) => ({ ...f, holderEmail: e.target.value }))}
+            placeholder="you@example.com"
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-neutral-400 mt-1">
+            Only used to email you if someone else beats this specific record later. Leave blank if you'd rather not.
+          </p>
         </div>
 
         <div>
