@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll, MapPin } from "lucide-react";
+import exifr from "exifr";
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -22,6 +23,18 @@ const REACTIONS = [
 
 function emptyReactions() {
   return REACTIONS.reduce((acc, r) => ({ ...acc, [r.key]: 0 }), {});
+}
+
+async function extractPhotoGPS(file) {
+  try {
+    const gps = await exifr.gps(file);
+    if (gps && typeof gps.latitude === "number" && typeof gps.longitude === "number") {
+      return { latitude: gps.latitude, longitude: gps.longitude };
+    }
+  } catch {
+    // no EXIF data, unsupported format, or it was stripped — just fall back silently
+  }
+  return null;
 }
 
 function resizeImage(file, maxDim = 900, quality = 0.75) {
@@ -150,6 +163,7 @@ export default function App() {
     locationLabel: "",
     latitude: null,
     longitude: null,
+    locationFromPhoto: false,
     photo: null,
     photoPreview: null,
   });
@@ -240,6 +254,7 @@ export default function App() {
       locationLabel: "",
       latitude: null,
       longitude: null,
+      locationFromPhoto: false,
       photo: null,
       photoPreview: null,
     });
@@ -268,8 +283,17 @@ export default function App() {
     if (!file) return;
     setPhotoProcessing(true);
     try {
-      const dataUrl = await resizeImage(file);
-      setForm((f) => ({ ...f, photo: dataUrl, photoPreview: dataUrl }));
+      const [dataUrl, gps] = await Promise.all([resizeImage(file), extractPhotoGPS(file)]);
+      setForm((f) => ({
+        ...f,
+        photo: dataUrl,
+        photoPreview: dataUrl,
+        // Only auto-fill from the photo if the person hasn't already set a
+        // location manually (e.g. via "use my current location").
+        latitude: f.latitude ?? gps?.latitude ?? null,
+        longitude: f.longitude ?? gps?.longitude ?? null,
+        locationFromPhoto: !!gps,
+      }));
     } catch {
       setSaveError("Couldn't process that image, try a different photo.");
     } finally {
@@ -557,7 +581,12 @@ export default function App() {
       )}
 
       {view === "addLegend" && (
-        <AddLegendView onCancel={() => setView("legends")} onSubmit={handleAddLegend} onDone={() => setView("legends")} />
+        <AddLegendView
+          onCancel={() => setView("legends")}
+          onSubmit={handleAddLegend}
+          onDone={() => setView("legends")}
+          onUseLocation={handleUseLocation}
+        />
       )}
 
       {view === "leaderboard" && (
@@ -655,6 +684,10 @@ function LegendsView({ legends, onBack, onAdd, onDelete }) {
                     </>
                   )}
                 </p>
+                <LocationLine
+                  entry={{ locationLabel: l.location_label, latitude: l.latitude, longitude: l.longitude }}
+                  size="small"
+                />
                 <p className="text-sm text-neutral-600 mt-1">{l.description}</p>
               </div>
               <button
@@ -672,7 +705,7 @@ function LegendsView({ legends, onBack, onAdd, onDelete }) {
   );
 }
 
-function AddLegendView({ onCancel, onSubmit, onDone }) {
+function AddLegendView({ onCancel, onSubmit, onDone, onUseLocation }) {
   const [title, setTitle] = useState("");
   const [holderName, setHolderName] = useState("");
   const [categoryLabel, setCategoryLabel] = useState("");
@@ -681,6 +714,12 @@ function AddLegendView({ onCancel, onSubmit, onDone }) {
   const [photo, setPhoto] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [locationLabel, setLocationLabel] = useState("");
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [locationFromPhoto, setLocationFromPhoto] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef(null);
@@ -690,9 +729,14 @@ function AddLegendView({ onCancel, onSubmit, onDone }) {
     if (!file) return;
     setPhotoProcessing(true);
     try {
-      const dataUrl = await resizeImage(file);
+      const [dataUrl, gps] = await Promise.all([resizeImage(file), extractPhotoGPS(file)]);
       setPhoto(dataUrl);
       setPhotoPreview(dataUrl);
+      if (gps && latitude === null) {
+        setLatitude(gps.latitude);
+        setLongitude(gps.longitude);
+        setLocationFromPhoto(true);
+      }
     } catch {
       setError("Couldn't process that image, try a different photo.");
     } finally {
@@ -715,6 +759,9 @@ function AddLegendView({ onCancel, onSubmit, onDone }) {
       era: era.trim() || null,
       description: description.trim(),
       photo: photo || null,
+      location_label: locationLabel.trim() || null,
+      latitude,
+      longitude,
     });
     setSaving(false);
     if (result.ok) {
@@ -775,6 +822,50 @@ function AddLegendView({ onCancel, onSubmit, onDone }) {
             placeholder='e.g. "circa 2018" or "Christmas 2015"'
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-neutral-700 mb-1">
+            Location <span className="text-neutral-400 font-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={locationLabel}
+            onChange={(e) => setLocationLabel(e.target.value)}
+            placeholder='e.g. "Newcastle" or "Ben Nevis summit"'
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+          {locationFromPhoto && latitude ? (
+            <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
+              <MapPin size={13} /> Location found automatically from the photo ✓
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setLocating(true);
+                setLocationError("");
+                onUseLocation(
+                  (lat, lng) => {
+                    setLatitude(lat);
+                    setLongitude(lng);
+                    setLocationFromPhoto(false);
+                    setLocating(false);
+                  },
+                  (message) => {
+                    setLocationError(message);
+                    setLocating(false);
+                  }
+                );
+              }}
+              disabled={locating}
+              className="flex items-center gap-1.5 mt-2 text-xs border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60 px-2.5 py-1.5 rounded-lg font-medium"
+            >
+              {locating ? <Loader2 size={13} className="animate-spin" /> : <MapPin size={13} />}
+              {locating ? "Getting location..." : latitude ? "Location captured ✓" : "Use my current location"}
+            </button>
+          )}
+          {locationError && <p className="text-xs text-red-600 mt-1">{locationError}</p>}
         </div>
 
         <div>
@@ -1482,28 +1573,34 @@ function SubmitView({
             onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
           />
-          <button
-            type="button"
-            onClick={() => {
-              setLocating(true);
-              setLocationError("");
-              onUseLocation(
-                (lat, lng) => {
-                  setForm((f) => ({ ...f, latitude: lat, longitude: lng }));
-                  setLocating(false);
-                },
-                (message) => {
-                  setLocationError(message);
-                  setLocating(false);
-                }
-              );
-            }}
-            disabled={locating}
-            className="flex items-center gap-1.5 mt-2 text-xs border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60 px-2.5 py-1.5 rounded-lg font-medium"
-          >
-            {locating ? <Loader2 size={13} className="animate-spin" /> : <MapPin size={13} />}
-            {locating ? "Getting location..." : form.latitude ? "Location captured ✓" : "Use my current location"}
-          </button>
+          {form.locationFromPhoto && form.latitude ? (
+            <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
+              <MapPin size={13} /> Location found automatically from your photo ✓
+            </p>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setLocating(true);
+                setLocationError("");
+                onUseLocation(
+                  (lat, lng) => {
+                    setForm((f) => ({ ...f, latitude: lat, longitude: lng, locationFromPhoto: false }));
+                    setLocating(false);
+                  },
+                  (message) => {
+                    setLocationError(message);
+                    setLocating(false);
+                  }
+                );
+              }}
+              disabled={locating}
+              className="flex items-center gap-1.5 mt-2 text-xs border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-60 px-2.5 py-1.5 rounded-lg font-medium"
+            >
+              {locating ? <Loader2 size={13} className="animate-spin" /> : <MapPin size={13} />}
+              {locating ? "Getting location..." : form.latitude ? "Location captured ✓" : "Use my current location"}
+            </button>
+          )}
           {locationError && <p className="text-xs text-red-600 mt-1">{locationError}</p>}
         </div>
 
