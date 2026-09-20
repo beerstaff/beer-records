@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll, MapPin } from "lucide-react";
+import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll, MapPin, MessageCircle } from "lucide-react";
 import exifr from "exifr";
 import { supabase } from "./supabaseClient";
 
@@ -137,6 +137,7 @@ export default function App() {
   const [categories, setCategories] = useState([]);
   const [recordsByCategory, setRecordsByCategory] = useState({});
   const [legends, setLegends] = useState([]);
+  const [commentsByRecord, setCommentsByRecord] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => {
@@ -233,6 +234,19 @@ export default function App() {
         .order("created_at", { ascending: false });
       if (!legendErr) {
         setLegends(legendRows || []);
+      }
+
+      const { data: commentRows, error: commentErr } = await supabase
+        .from("comments")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (!commentErr) {
+        const groupedComments = {};
+        (commentRows || []).forEach((c) => {
+          groupedComments[c.record_id] = groupedComments[c.record_id] || [];
+          groupedComments[c.record_id].push(c);
+        });
+        setCommentsByRecord(groupedComments);
       }
     } catch (e) {
       setLoadError(
@@ -445,6 +459,39 @@ export default function App() {
     }
   }
 
+  async function handleAddComment(recordId, commenterName, commentText) {
+    const { data, error } = await supabase
+      .from("comments")
+      .insert({ record_id: recordId, commenter_name: commenterName, comment_text: commentText })
+      .select()
+      .single();
+    if (error) return { ok: false };
+    setCommentsByRecord((prev) => ({
+      ...prev,
+      [recordId]: [...(prev[recordId] || []), data],
+    }));
+    return { ok: true };
+  }
+
+  async function handleDeleteComment(recordId, commentId) {
+    const entered = window.prompt("Enter the passcode to delete this comment:");
+    if (entered === null) return;
+    if (entered !== DELETE_PASSCODE) {
+      alert("Incorrect passcode. Not deleted.");
+      return;
+    }
+    const previous = commentsByRecord[recordId] || [];
+    setCommentsByRecord((prev) => ({
+      ...prev,
+      [recordId]: prev[recordId].filter((c) => c.id !== commentId),
+    }));
+    const { error } = await supabase.from("comments").delete().eq("id", commentId);
+    if (error) {
+      setCommentsByRecord((prev) => ({ ...prev, [recordId]: previous }));
+      alert("Couldn't delete that comment. Try again.");
+    }
+  }
+
   if (unsubscribeState === "working" || unsubscribeState === "done" || unsubscribeState === "error") {
     return (
       <div className="max-w-md mx-auto p-6 text-center mt-16">
@@ -568,6 +615,9 @@ export default function App() {
           onReact={handleReact}
           onDelete={handleDelete}
           onRename={handleRenameCategory}
+          commentsByRecord={commentsByRecord}
+          onAddComment={handleAddComment}
+          onDeleteComment={handleDeleteComment}
         />
       )}
 
@@ -1341,7 +1391,91 @@ function LocationLine({ entry, size = "normal" }) {
   );
 }
 
-function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelete, onRename }) {
+function CommentsSection({ recordId, comments, onAdd, onDelete, size = "normal" }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [text, setText] = useState("");
+  const [posting, setPosting] = useState(false);
+  const textClass = size === "small" ? "text-xs" : "text-sm";
+
+  async function handlePost(e) {
+    e.preventDefault();
+    if (!name.trim() || !text.trim()) return;
+    setPosting(true);
+    const result = await onAdd(recordId, name.trim(), text.trim());
+    setPosting(false);
+    if (result.ok) setText("");
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-1 text-neutral-500 hover:text-amber-700 ${textClass}`}
+      >
+        <MessageCircle size={size === "small" ? 12 : 14} />
+        {comments.length > 0 ? `${comments.length} comment${comments.length > 1 ? "s" : ""}` : "Add a comment"}
+      </button>
+
+      {open && (
+        <div className="mt-2 space-y-2">
+          {comments.map((c) => (
+            <div key={c.id} className="flex items-start justify-between gap-2 bg-amber-50/60 border border-amber-100 rounded-lg px-2.5 py-1.5">
+              <p className={textClass}>
+                <span className="font-medium text-amber-950">{c.commenter_name}</span>{" "}
+                <span className="text-neutral-600">{c.comment_text}</span>
+              </p>
+              <button
+                onClick={() => onDelete(recordId, c.id)}
+                title="Delete comment"
+                className="text-neutral-300 hover:text-red-600 flex-shrink-0"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+
+          <form onSubmit={handlePost} className="flex flex-col sm:flex-row gap-1.5">
+            <input
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1 text-xs w-full sm:w-24 flex-shrink-0"
+            />
+            <input
+              type="text"
+              placeholder="Say something..."
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              className="border border-amber-200 rounded-lg px-2 py-1 text-xs flex-1"
+            />
+            <button
+              type="submit"
+              disabled={posting}
+              className="bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-2.5 py-1 rounded-lg text-xs font-medium flex-shrink-0"
+            >
+              {posting ? "..." : "Post"}
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CategoryView({
+  category,
+  entries,
+  onBack,
+  onNewRecord,
+  onReact,
+  onDelete,
+  onRename,
+  commentsByRecord,
+  onAddComment,
+  onDeleteComment,
+}) {
   const [current, ...past] = entries;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(category);
@@ -1448,6 +1582,12 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelet
               <LocationLine entry={current} />
               <p className="text-sm text-neutral-600 mt-2 whitespace-pre-wrap">{current.description}</p>
               <ReactionBar reactions={current.reactions} onReact={(key) => onReact(category, current.id, key)} />
+              <CommentsSection
+                recordId={current.id}
+                comments={commentsByRecord[current.id] || []}
+                onAdd={onAddComment}
+                onDelete={onDeleteComment}
+              />
             </div>
           </div>
         </div>
@@ -1469,6 +1609,13 @@ function CategoryView({ category, entries, onBack, onNewRecord, onReact, onDelet
                   </p>
                   <LocationLine entry={e} size="small" />
                   <ReactionBar reactions={e.reactions} onReact={(key) => onReact(category, e.id, key)} size="small" />
+                  <CommentsSection
+                    recordId={e.id}
+                    comments={commentsByRecord[e.id] || []}
+                    onAdd={onAddComment}
+                    onDelete={onDeleteComment}
+                    size="small"
+                  />
                 </div>
                 <button
                   onClick={() => onDelete(category, e.id)}
