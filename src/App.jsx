@@ -138,6 +138,7 @@ export default function App() {
   const [recordsByCategory, setRecordsByCategory] = useState({});
   const [legends, setLegends] = useState([]);
   const [commentsByRecord, setCommentsByRecord] = useState({});
+  const [commentsByLegend, setCommentsByLegend] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => {
@@ -242,11 +243,18 @@ export default function App() {
         .order("created_at", { ascending: true });
       if (!commentErr) {
         const groupedComments = {};
+        const groupedLegendComments = {};
         (commentRows || []).forEach((c) => {
-          groupedComments[c.record_id] = groupedComments[c.record_id] || [];
-          groupedComments[c.record_id].push(c);
+          if (c.record_id) {
+            groupedComments[c.record_id] = groupedComments[c.record_id] || [];
+            groupedComments[c.record_id].push(c);
+          } else if (c.legend_id) {
+            groupedLegendComments[c.legend_id] = groupedLegendComments[c.legend_id] || [];
+            groupedLegendComments[c.legend_id].push(c);
+          }
         });
         setCommentsByRecord(groupedComments);
+        setCommentsByLegend(groupedLegendComments);
       }
     } catch (e) {
       setLoadError(
@@ -459,6 +467,52 @@ export default function App() {
     }
   }
 
+  async function handleReactLegend(legendId, key) {
+    const legend = legends.find((l) => l.id === legendId);
+    if (!legend) return;
+    const nextReactions = { ...emptyReactions(), ...legend.reactions, [key]: (legend.reactions?.[key] || 0) + 1 };
+
+    setLegends((prev) => prev.map((l) => (l.id === legendId ? { ...l, reactions: nextReactions } : l)));
+
+    const { error } = await supabase.from("legends").update({ reactions: nextReactions }).eq("id", legendId);
+    if (error) {
+      setLegends((prev) => prev.map((l) => (l.id === legendId ? legend : l)));
+    }
+  }
+
+  async function handleAddLegendComment(legendId, commenterName, commentText) {
+    const { data, error } = await supabase
+      .from("comments")
+      .insert({ legend_id: legendId, commenter_name: commenterName, comment_text: commentText })
+      .select()
+      .single();
+    if (error) return { ok: false };
+    setCommentsByLegend((prev) => ({
+      ...prev,
+      [legendId]: [...(prev[legendId] || []), data],
+    }));
+    return { ok: true };
+  }
+
+  async function handleDeleteLegendComment(legendId, commentId) {
+    const entered = window.prompt("Enter the passcode to delete this comment:");
+    if (entered === null) return;
+    if (entered !== DELETE_PASSCODE) {
+      alert("Incorrect passcode. Not deleted.");
+      return;
+    }
+    const previous = commentsByLegend[legendId] || [];
+    setCommentsByLegend((prev) => ({
+      ...prev,
+      [legendId]: prev[legendId].filter((c) => c.id !== commentId),
+    }));
+    const { error } = await supabase.from("comments").delete().eq("id", commentId);
+    if (error) {
+      setCommentsByLegend((prev) => ({ ...prev, [legendId]: previous }));
+      alert("Couldn't delete that comment. Try again.");
+    }
+  }
+
   async function handleAddComment(recordId, commenterName, commentText) {
     const { data, error } = await supabase
       .from("comments")
@@ -627,6 +681,10 @@ export default function App() {
           onBack={() => setView("home")}
           onAdd={() => setView("addLegend")}
           onDelete={handleDeleteLegend}
+          onReact={handleReactLegend}
+          commentsByLegend={commentsByLegend}
+          onAddComment={handleAddLegendComment}
+          onDeleteComment={handleDeleteLegendComment}
         />
       )}
 
@@ -686,7 +744,7 @@ export default function App() {
   );
 }
 
-function LegendsView({ legends, onBack, onAdd, onDelete }) {
+function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLegend, onAddComment, onDeleteComment }) {
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
@@ -739,6 +797,14 @@ function LegendsView({ legends, onBack, onAdd, onDelete }) {
                   size="small"
                 />
                 <p className="text-sm text-neutral-600 mt-1">{l.description}</p>
+                <ReactionBar reactions={l.reactions} onReact={(key) => onReact(l.id, key)} size="small" />
+                <CommentsSection
+                  recordId={l.id}
+                  comments={commentsByLegend[l.id] || []}
+                  onAdd={onAddComment}
+                  onDelete={onDeleteComment}
+                  size="small"
+                />
               </div>
               <button
                 onClick={() => onDelete(l.id)}
