@@ -72,6 +72,7 @@ const POSTING_RULES = [
   "Keep descriptions and photos appropriate — nothing offensive, cruel, or NSFW.",
   "Records and comments should stay good-natured. No targeting or embarrassing other members without their consent.",
   "Drink responsibly — this is meant to be fun, not a reason to overdo it.",
+  "Photos can carry hidden location data from your phone's camera, which the site may show publicly (with a map link) — check your photo before uploading if you'd rather not share exactly where it was taken.",
 ];
 
 const RECORD_RULES = [
@@ -149,6 +150,8 @@ export default function App() {
     }
   });
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedProfileName, setSelectedProfileName] = useState(null);
+  const [profileBackView, setProfileBackView] = useState("home");
   const [searchQuery, setSearchQuery] = useState("");
   const [unsubscribeState, setUnsubscribeState] = useState(null); // null | "working" | "done" | "error"
   const [saving, setSaving] = useState(false);
@@ -282,6 +285,12 @@ export default function App() {
     });
     setSaveError("");
     setView("submit");
+  }
+
+  function openProfile(name) {
+    setSelectedProfileName(name);
+    setProfileBackView(view);
+    setView("profile");
   }
 
   function handleUseLocation(onResult, onError) {
@@ -672,6 +681,7 @@ export default function App() {
           commentsByRecord={commentsByRecord}
           onAddComment={handleAddComment}
           onDeleteComment={handleDeleteComment}
+          onOpenProfile={openProfile}
         />
       )}
 
@@ -685,6 +695,7 @@ export default function App() {
           commentsByLegend={commentsByLegend}
           onAddComment={handleAddLegendComment}
           onDeleteComment={handleDeleteLegendComment}
+          onOpenProfile={openProfile}
         />
       )}
 
@@ -698,7 +709,20 @@ export default function App() {
       )}
 
       {view === "leaderboard" && (
-        <LeaderboardView records={recordsByCategory} onBack={() => setView("home")} />
+        <LeaderboardView records={recordsByCategory} onBack={() => setView("home")} onOpenProfile={openProfile} />
+      )}
+
+      {view === "profile" && (
+        <ProfileView
+          name={selectedProfileName}
+          records={recordsByCategory}
+          legends={legends}
+          onBack={() => setView(profileBackView)}
+          onOpenCategory={(cat) => {
+            setSelectedCategory(cat);
+            setView("category");
+          }}
+        />
       )}
 
       {view === "rules" && (
@@ -744,7 +768,7 @@ export default function App() {
   );
 }
 
-function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLegend, onAddComment, onDeleteComment }) {
+function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLegend, onAddComment, onDeleteComment, onOpenProfile }) {
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
@@ -784,7 +808,10 @@ function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLege
                 <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{l.category_label}</p>
                 <p className="text-sm font-semibold text-amber-950">{l.title}</p>
                 <p className="text-xs text-neutral-500 flex items-center gap-1 mt-0.5">
-                  <User size={11} /> {l.holder_name}
+                  <User size={11} />
+                  <button onClick={() => onOpenProfile(l.holder_name)} className="hover:underline hover:text-amber-800">
+                    {l.holder_name}
+                  </button>
                   {l.era && (
                     <>
                       <span className="mx-1">·</span>
@@ -951,6 +978,9 @@ function AddLegendView({ onCancel, onSubmit, onDone, onUseLocation }) {
             placeholder='e.g. "Newcastle" or "Ben Nevis summit"'
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
           />
+          <p className="text-xs text-neutral-400 mt-1">
+            Heads up: photos can carry hidden location data — check yours first if you'd rather not share exactly where it was taken.
+          </p>
           {locationFromPhoto && latitude ? (
             <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
               <MapPin size={13} /> Location found automatically from the photo ✓
@@ -1042,7 +1072,121 @@ function AddLegendView({ onCancel, onSubmit, onDone, onUseLocation }) {
   );
 }
 
-function LeaderboardView({ records, onBack }) {
+function ProfileView({ name, records, legends, onBack, onOpenCategory }) {
+  const currentRecords = [];
+  const pastRecords = [];
+  let totalReactions = 0;
+
+  Object.entries(records).forEach(([category, entries]) => {
+    entries.forEach((entry, i) => {
+      if (entry.holderName !== name) return;
+      const reactionTotal = Object.values(entry.reactions || {}).reduce((sum, n) => sum + n, 0);
+      totalReactions += reactionTotal;
+      (i === 0 ? currentRecords : pastRecords).push({ category, entry });
+    });
+  });
+
+  const legendEntries = legends.filter((l) => l.holder_name === name);
+  legendEntries.forEach((l) => {
+    totalReactions += Object.values(l.reactions || {}).reduce((sum, n) => sum + n, 0);
+  });
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
+        <ArrowLeft size={15} /> Back
+      </button>
+
+      <div className="flex items-center gap-3 mb-2">
+        <div className="bg-amber-800 text-amber-50 rounded-full w-12 h-12 flex items-center justify-center flex-shrink-0">
+          <User size={22} />
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-amber-950">{name}</h2>
+          <p className="text-xs text-neutral-500">
+            {currentRecords.length} current record{currentRecords.length !== 1 ? "s" : ""} · {pastRecords.length} past ·{" "}
+            {totalReactions} reaction{totalReactions !== 1 ? "s" : ""} received
+          </p>
+        </div>
+      </div>
+
+      {currentRecords.length === 0 && pastRecords.length === 0 && legendEntries.length === 0 ? (
+        <p className="text-sm text-neutral-400 italic mt-6">No records found under this name yet.</p>
+      ) : (
+        <>
+          {currentRecords.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-amber-900 mb-2">Current records held</h3>
+              <div className="space-y-2">
+                {currentRecords.map(({ category, entry }) => (
+                  <button
+                    key={entry.id}
+                    onClick={() => onOpenCategory(category)}
+                    className="w-full flex gap-3 items-start text-left border border-amber-200 rounded-lg p-2 bg-white hover:border-amber-400 transition"
+                  >
+                    <img src={entry.photo} alt={entry.title} className="w-14 h-14 object-cover rounded-md bg-amber-100 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{category}</p>
+                      <p className="text-sm font-semibold text-amber-950 truncate">{entry.title}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {pastRecords.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-amber-900 mb-2">Past records held</h3>
+              <div className="space-y-2">
+                {pastRecords.map(({ category, entry }) => (
+                  <button
+                    key={entry.id}
+                    onClick={() => onOpenCategory(category)}
+                    className="w-full flex gap-3 items-start text-left border border-amber-100 rounded-lg p-2 bg-amber-50/40 hover:border-amber-300 transition"
+                  >
+                    <img src={entry.photo} alt={entry.title} className="w-14 h-14 object-cover rounded-md bg-amber-100 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{category}</p>
+                      <p className="text-sm font-semibold text-amber-950 truncate">{entry.title}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {legendEntries.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-amber-900 mb-2 flex items-center gap-1.5">
+                <Scroll size={15} /> Legends
+              </h3>
+              <div className="space-y-2">
+                {legendEntries.map((l) => (
+                  <div key={l.id} className="flex gap-3 items-start border border-amber-100 rounded-lg p-2 bg-amber-50/40">
+                    {l.photo ? (
+                      <img src={l.photo} alt={l.title} className="w-14 h-14 object-cover rounded-md bg-amber-100 flex-shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-md bg-amber-100 flex items-center justify-center text-amber-400 flex-shrink-0">
+                        <Scroll size={18} />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs text-amber-700 font-medium uppercase tracking-wide truncate">{l.category_label}</p>
+                      <p className="text-sm font-semibold text-amber-950 truncate">{l.title}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function LeaderboardView({ records, onBack, onOpenProfile }) {
   const allEntries = Object.values(records).flat();
 
   const currentHolders = Object.values(records)
@@ -1094,7 +1238,9 @@ function LeaderboardView({ records, onBack }) {
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-6 text-center">{medals[i] || i + 1}</span>
-                    <span className="font-medium text-amber-950">{name}</span>
+                    <button onClick={() => onOpenProfile(name)} className="font-medium text-amber-950 hover:underline">
+                      {name}
+                    </button>
                   </span>
                   <span className="text-neutral-500">{count}</span>
                 </li>
@@ -1116,7 +1262,9 @@ function LeaderboardView({ records, onBack }) {
                 >
                   <span className="flex items-center gap-2">
                     <span className="w-6 text-center">{medals[i] || i + 1}</span>
-                    <span className="font-medium text-amber-950">{name}</span>
+                    <button onClick={() => onOpenProfile(name)} className="font-medium text-amber-950 hover:underline">
+                      {name}
+                    </button>
                   </span>
                   <span className="text-neutral-500">{count}</span>
                 </li>
@@ -1541,6 +1689,7 @@ function CategoryView({
   commentsByRecord,
   onAddComment,
   onDeleteComment,
+  onOpenProfile,
 }) {
   const [current, ...past] = entries;
   const [editing, setEditing] = useState(false);
@@ -1640,7 +1789,10 @@ function CategoryView({
               <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">Current record holder</p>
               <h3 className="text-lg font-bold text-amber-950 mt-1 pr-6">{current.title}</h3>
               <p className="text-sm text-neutral-700 flex items-center gap-1 mt-1">
-                <User size={13} /> {current.holderName}
+                <User size={13} />
+                <button onClick={() => onOpenProfile(current.holderName)} className="hover:underline hover:text-amber-800">
+                  {current.holderName}
+                </button>
               </p>
               <p className="text-xs text-neutral-400 flex items-center gap-1 mt-0.5">
                 <Calendar size={12} /> {formatDate(current.date)}
@@ -1669,7 +1821,10 @@ function CategoryView({
                 <div className="min-w-0 flex-1 pr-6">
                   <p className="text-sm font-medium text-amber-950 truncate">{e.title}</p>
                   <p className="text-xs text-neutral-500 flex items-center gap-1">
-                    <User size={11} /> {e.holderName}
+                    <User size={11} />
+                    <button onClick={() => onOpenProfile(e.holderName)} className="hover:underline hover:text-amber-800">
+                      {e.holderName}
+                    </button>
                     <span className="mx-1">·</span>
                     <Calendar size={11} /> {formatDate(e.date)}
                   </p>
@@ -1786,6 +1941,9 @@ function SubmitView({
             onChange={(e) => setForm((f) => ({ ...f, locationLabel: e.target.value }))}
             className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
           />
+          <p className="text-xs text-neutral-400 mt-1">
+            Heads up: photos can carry hidden location data — check yours first if you'd rather not share exactly where it was taken.
+          </p>
           {form.locationFromPhoto && form.latitude ? (
             <p className="text-xs text-green-700 mt-2 flex items-center gap-1">
               <MapPin size={13} /> Location found automatically from your photo ✓
