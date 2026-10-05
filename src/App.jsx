@@ -142,9 +142,18 @@ export default function App() {
   const [commentsByLegend, setCommentsByLegend] = useState({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [username, setUsername] = useState(() => {
+    try {
+      return localStorage.getItem("myUsername") || null;
+    } catch {
+      return null;
+    }
+  });
   const [view, setView] = useState(() => {
     try {
-      return localStorage.getItem("hasSeenRules") === "true" ? "home" : "rules";
+      if (localStorage.getItem("hasSeenRules") !== "true") return "rules";
+      if (!localStorage.getItem("myUsername")) return "chooseUsername";
+      return "home";
     } catch {
       return "home";
     }
@@ -335,7 +344,7 @@ export default function App() {
   async function handleSubmitRecord(e) {
     e.preventDefault();
     const category = (form.newCategory.trim() || form.categoryChoice).trim();
-    if (!category || !form.title.trim() || !form.holderName.trim() || !form.description.trim() || !form.photo) {
+    if (!category || !form.title.trim() || !username || !form.description.trim() || !form.photo) {
       setSaveError("Fill in every field and add a photo before submitting.");
       return;
     }
@@ -352,7 +361,7 @@ export default function App() {
       const { error: recErr } = await supabase.from("records").insert({
         category,
         title: form.title.trim(),
-        holder_name: form.holderName.trim(),
+        holder_name: username,
         holder_email: form.holderEmail.trim() || null,
         description: form.description.trim(),
         photo: form.photo,
@@ -601,8 +610,21 @@ export default function App() {
               <p className="text-xs text-amber-700">A club record for every glass raised</p>
             </div>
           </button>
-          {view !== "submit" && view !== "subscribe" && view !== "rules" && view !== "addLegend" && (
+          {view !== "submit" &&
+            view !== "subscribe" &&
+            view !== "rules" &&
+            view !== "addLegend" &&
+            view !== "chooseUsername" && (
             <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+              {username && (
+                <button
+                  onClick={() => setView("chooseUsername")}
+                  title="Change username"
+                  className="flex items-center gap-1 text-xs text-neutral-500 hover:text-amber-800 px-2 py-2"
+                >
+                  <User size={14} /> {username}
+                </button>
+              )}
               <button
                 onClick={() => setView("subscribe")}
                 className="flex items-center gap-1 border border-amber-300 text-amber-800 hover:bg-amber-50 px-3 py-2 rounded-lg text-sm font-medium transition"
@@ -682,6 +704,7 @@ export default function App() {
           onAddComment={handleAddComment}
           onDeleteComment={handleDeleteComment}
           onOpenProfile={openProfile}
+          username={username}
         />
       )}
 
@@ -696,6 +719,7 @@ export default function App() {
           onAddComment={handleAddLegendComment}
           onDeleteComment={handleDeleteLegendComment}
           onOpenProfile={openProfile}
+          username={username}
         />
       )}
 
@@ -733,6 +757,22 @@ export default function App() {
             } catch {
               // ignore storage errors, just proceed
             }
+            setView(username ? "home" : "chooseUsername");
+          }}
+        />
+      )}
+
+      {view === "chooseUsername" && (
+        <ChooseUsernameView
+          canCancel={!!username}
+          onCancel={() => setView("home")}
+          onChosen={(name) => {
+            setUsername(name);
+            try {
+              localStorage.setItem("myUsername", name);
+            } catch {
+              // ignore storage errors
+            }
             setView("home");
           }}
         />
@@ -753,6 +793,7 @@ export default function App() {
           saveError={saveError}
           fileInputRef={fileInputRef}
           onUseLocation={handleUseLocation}
+          username={username}
         />
       )}
 
@@ -768,7 +809,7 @@ export default function App() {
   );
 }
 
-function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLegend, onAddComment, onDeleteComment, onOpenProfile }) {
+function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLegend, onAddComment, onDeleteComment, onOpenProfile, username }) {
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
@@ -831,6 +872,7 @@ function LegendsView({ legends, onBack, onAdd, onDelete, onReact, commentsByLege
                   onAdd={onAddComment}
                   onDelete={onDeleteComment}
                   size="small"
+                  username={username}
                 />
               </div>
               <button
@@ -1281,6 +1323,71 @@ function LeaderboardView({ records, onBack, onOpenProfile }) {
   );
 }
 
+function ChooseUsernameView({ onChosen, canCancel, onCancel }) {
+  const [input, setInput] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const name = input.trim();
+    if (!name) return;
+    if (name.length > 30) {
+      setError("Keep it under 30 characters.");
+      return;
+    }
+    setChecking(true);
+    setError("");
+
+    const { error: insertErr } = await supabase.from("members").insert({ username: name });
+    setChecking(false);
+    // 23505 = already claimed by someone (possibly you, on another device) —
+    // either way, just let them continue as that name, no faff.
+    if (insertErr && insertErr.code !== "23505") {
+      setError("Couldn't save that right now. Try again.");
+      return;
+    }
+    onChosen(name);
+  }
+
+  return (
+    <div className="max-w-md mx-auto">
+      <div className="flex items-center gap-2 mb-2">
+        <User className="text-amber-800" size={22} />
+        <h2 className="text-lg font-bold text-amber-950">Pick a username</h2>
+      </div>
+      <p className="text-sm text-neutral-500 mb-4">
+        This is what shows up on your records, comments, and the leaderboard. Used this one before on another device?
+        Just type it again.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="e.g. Dave, or Dave S."
+          autoFocus
+          className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+        />
+        {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+        <button
+          type="submit"
+          disabled={checking}
+          className="w-full bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+        >
+          {checking ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+          {checking ? "Saving..." : "Continue"}
+        </button>
+        {canCancel && (
+          <button type="button" onClick={onCancel} className="w-full text-sm text-neutral-500 hover:underline">
+            Cancel
+          </button>
+        )}
+      </form>
+    </div>
+  );
+}
+
 function RulesView({ onContinue }) {
   return (
     <div className="max-w-lg mx-auto">
@@ -1605,18 +1712,17 @@ function LocationLine({ entry, size = "normal" }) {
   );
 }
 
-function CommentsSection({ recordId, comments, onAdd, onDelete, size = "normal" }) {
+function CommentsSection({ recordId, comments, onAdd, onDelete, size = "normal", username }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
   const textClass = size === "small" ? "text-xs" : "text-sm";
 
   async function handlePost(e) {
     e.preventDefault();
-    if (!name.trim() || !text.trim()) return;
+    if (!username || !text.trim()) return;
     setPosting(true);
-    const result = await onAdd(recordId, name.trim(), text.trim());
+    const result = await onAdd(recordId, username, text.trim());
     setPosting(false);
     if (result.ok) setText("");
   }
@@ -1652,13 +1758,6 @@ function CommentsSection({ recordId, comments, onAdd, onDelete, size = "normal" 
           <form onSubmit={handlePost} className="flex flex-col sm:flex-row gap-1.5">
             <input
               type="text"
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="border border-amber-200 rounded-lg px-2 py-1 text-xs w-full sm:w-24 flex-shrink-0"
-            />
-            <input
-              type="text"
               placeholder="Say something..."
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -1690,6 +1789,7 @@ function CategoryView({
   onAddComment,
   onDeleteComment,
   onOpenProfile,
+  username,
 }) {
   const [current, ...past] = entries;
   const [editing, setEditing] = useState(false);
@@ -1805,6 +1905,7 @@ function CategoryView({
                 comments={commentsByRecord[current.id] || []}
                 onAdd={onAddComment}
                 onDelete={onDeleteComment}
+                username={username}
               />
             </div>
           </div>
@@ -1836,6 +1937,7 @@ function CategoryView({
                     onAdd={onAddComment}
                     onDelete={onDeleteComment}
                     size="small"
+                    username={username}
                   />
                 </div>
                 <button
@@ -1866,6 +1968,7 @@ function SubmitView({
   saveError,
   fileInputRef,
   onUseLocation,
+  username,
 }) {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
@@ -1874,7 +1977,10 @@ function SubmitView({
       <button type="button" onClick={onCancel} className="flex items-center gap-1 text-sm text-amber-700 mb-4 hover:underline">
         <ArrowLeft size={15} /> Cancel
       </button>
-      <h2 className="text-lg font-bold text-amber-950 mb-4">Submit a new record</h2>
+      <h2 className="text-lg font-bold text-amber-950 mb-1">Submit a new record</h2>
+      <p className="text-sm text-neutral-500 mb-4 flex items-center gap-1">
+        <User size={13} /> Posting as <span className="font-medium text-amber-900">{username}</span>
+      </p>
 
       <div className="space-y-4">
         <div>
@@ -1973,16 +2079,6 @@ function SubmitView({
             </button>
           )}
           {locationError && <p className="text-xs text-red-600 mt-1">{locationError}</p>}
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-neutral-700 mb-1">Your name</label>
-          <input
-            type="text"
-            value={form.holderName}
-            onChange={(e) => setForm((f) => ({ ...f, holderName: e.target.value }))}
-            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
-          />
         </div>
 
         <div>
