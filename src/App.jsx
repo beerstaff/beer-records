@@ -1,6 +1,18 @@
 import { useState, useEffect, useRef } from "react";
 import { Trophy, Upload, Plus, ArrowLeft, Calendar, User, Loader2, X, ImageOff, Search, Camera, Mail, CheckCircle2, Trash2, Pencil, Check, Medal, Scroll, MapPin, MessageCircle } from "lucide-react";
 import exifr from "exifr";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// Leaflet's default marker icon references image paths that don't resolve
+// correctly through Vite's bundler — point them at the CDN copies instead.
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 import { supabase } from "./supabaseClient";
 
 const DEFAULT_CATEGORIES = [
@@ -641,12 +653,13 @@ export default function App() {
           )}
         </div>
 
-        {(view === "home" || view === "category" || view === "legends" || view === "leaderboard") && (
-          <nav className="flex gap-1 mt-4 -mb-4 border-b border-amber-100">
+        {(view === "home" || view === "category" || view === "legends" || view === "leaderboard" || view === "map") && (
+          <nav className="flex gap-1 mt-4 -mb-4 border-b border-amber-100 overflow-x-auto">
             {[
               { key: "home", label: "Records", icon: Trophy, matches: ["home", "category"] },
               { key: "legends", label: "Legends", icon: Scroll, matches: ["legends"] },
               { key: "leaderboard", label: "Leaderboard", icon: Medal, matches: ["leaderboard"] },
+              { key: "map", label: "Map", icon: MapPin, matches: ["map"] },
             ].map((tab) => {
               const isActive = tab.matches.includes(view);
               const Icon = tab.icon;
@@ -734,6 +747,17 @@ export default function App() {
 
       {view === "leaderboard" && (
         <LeaderboardView records={recordsByCategory} onBack={() => setView("home")} onOpenProfile={openProfile} />
+      )}
+
+      {view === "map" && (
+        <MapView
+          records={recordsByCategory}
+          legends={legends}
+          onOpenCategory={(cat) => {
+            setSelectedCategory(cat);
+            setView("category");
+          }}
+        />
       )}
 
       {view === "profile" && (
@@ -1223,6 +1247,107 @@ function ProfileView({ name, records, legends, onBack, onOpenCategory }) {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function FitBoundsToMarkers({ points }) {
+  const map = useMap();
+  useEffect(() => {
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      map.setView([points[0].latitude, points[0].longitude], 10);
+      return;
+    }
+    const bounds = L.latLngBounds(points.map((p) => [p.latitude, p.longitude]));
+    map.fitBounds(bounds, { padding: [30, 30] });
+  }, [points, map]);
+  return null;
+}
+
+function MapView({ records, legends, onOpenCategory }) {
+  const points = [];
+
+  Object.entries(records).forEach(([category, entries]) => {
+    entries.forEach((entry, i) => {
+      if (entry.latitude && entry.longitude) {
+        points.push({
+          id: entry.id,
+          latitude: entry.latitude,
+          longitude: entry.longitude,
+          title: entry.title,
+          holderName: entry.holderName,
+          photo: entry.photo,
+          category,
+          isCurrent: i === 0,
+          kind: "record",
+        });
+      }
+    });
+  });
+
+  legends.forEach((l) => {
+    if (l.latitude && l.longitude) {
+      points.push({
+        id: l.id,
+        latitude: l.latitude,
+        longitude: l.longitude,
+        title: l.title,
+        holderName: l.holder_name,
+        photo: l.photo,
+        category: l.category_label,
+        kind: "legend",
+      });
+    }
+  });
+
+  return (
+    <div>
+      <h2 className="text-lg font-bold text-amber-950 mb-1 flex items-center gap-2">
+        <MapPin size={20} /> Map
+      </h2>
+      <p className="text-sm text-neutral-500 mb-4">
+        {points.length === 0
+          ? "No records have a location yet — add one when you submit a record and it'll show up here."
+          : `${points.length} record${points.length !== 1 ? "s" : ""} with a location.`}
+      </p>
+
+      {points.length > 0 && (
+        <div className="rounded-xl overflow-hidden border border-amber-200" style={{ height: "60vh", minHeight: 320 }}>
+          <MapContainer center={[54.5, -3]} zoom={5} style={{ height: "100%", width: "100%" }}>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            />
+            <FitBoundsToMarkers points={points} />
+            {points.map((p) => (
+              <Marker key={`${p.kind}-${p.id}`} position={[p.latitude, p.longitude]}>
+                <Popup>
+                  <div className="text-sm">
+                    {p.photo && (
+                      <img src={p.photo} alt={p.title} className="w-full h-24 object-cover rounded mb-1.5" />
+                    )}
+                    <p className="text-xs font-medium text-amber-700 uppercase tracking-wide">
+                      {p.category} {p.kind === "legend" && "· Legend"}
+                      {p.kind === "record" && !p.isCurrent && " · Past holder"}
+                    </p>
+                    <p className="font-semibold text-amber-950">{p.title}</p>
+                    <p className="text-xs text-neutral-500">{p.holderName}</p>
+                    {p.kind === "record" && (
+                      <button
+                        onClick={() => onOpenCategory(p.category)}
+                        className="text-amber-700 underline text-xs mt-1"
+                      >
+                        View record
+                      </button>
+                    )}
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+          </MapContainer>
+        </div>
       )}
     </div>
   );
