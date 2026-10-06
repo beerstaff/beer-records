@@ -1327,6 +1327,7 @@ function ChooseUsernameView({ onChosen, canCancel, onCancel }) {
   const [input, setInput] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
+  const [takenNotice, setTakenNotice] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -1338,17 +1339,25 @@ function ChooseUsernameView({ onChosen, canCancel, onCancel }) {
     }
     setChecking(true);
     setError("");
+    setTakenNotice(false);
 
     const { error: insertErr } = await supabase.from("members").insert({ username: name });
     setChecking(false);
-    // 23505 = already claimed by someone (possibly you, on another device) —
-    // either way, just let them continue as that name, no faff.
-    if (insertErr && insertErr.code !== "23505") {
-      setError("Couldn't save that right now. Try again.");
+
+    if (!insertErr) {
+      onChosen(name);
       return;
     }
-    onChosen(name);
+    // 23505 = already claimed by someone (possibly you, on another device).
+    // Not blocking — just flag it so they know, then let them confirm.
+    if (insertErr.code === "23505") {
+      setTakenNotice(true);
+      return;
+    }
+    setError("Couldn't save that right now. Try again.");
   }
+
+  const name = input.trim();
 
   return (
     <div className="max-w-md mx-auto">
@@ -1360,30 +1369,53 @@ function ChooseUsernameView({ onChosen, canCancel, onCancel }) {
         This is what shows up on your records, comments, and the leaderboard. Used this one before on another device?
         Just type it again.
       </p>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="e.g. Dave, or Dave S."
-          autoFocus
-          className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
-        />
-        {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
-        <button
-          type="submit"
-          disabled={checking}
-          className="w-full bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
-        >
-          {checking ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-          {checking ? "Saving..." : "Continue"}
-        </button>
-        {canCancel && (
-          <button type="button" onClick={onCancel} className="w-full text-sm text-neutral-500 hover:underline">
-            Cancel
+
+      {takenNotice ? (
+        <div className="space-y-3">
+          <div className="text-sm bg-amber-50 text-amber-800 border border-amber-200 rounded-lg px-3 py-2">
+            Heads up — someone's already using "{name}". You can still carry on as "{name}" if you like, or pick
+            something else.
+          </div>
+          <button
+            onClick={() => onChosen(name)}
+            className="w-full bg-amber-800 hover:bg-amber-900 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            <Check size={16} /> Continue as "{name}"
           </button>
-        )}
-      </form>
+          <button
+            type="button"
+            onClick={() => setTakenNotice(false)}
+            className="w-full text-sm text-neutral-500 hover:underline"
+          >
+            Pick a different username instead
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="e.g. Dave, or Dave S."
+            autoFocus
+            className="w-full border border-amber-200 rounded-lg px-3 py-2 text-sm"
+          />
+          {error && <div className="text-sm bg-red-50 text-red-700 border border-red-200 rounded-lg px-3 py-2">{error}</div>}
+          <button
+            type="submit"
+            disabled={checking}
+            className="w-full bg-amber-800 hover:bg-amber-900 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            {checking ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            {checking ? "Saving..." : "Continue"}
+          </button>
+          {canCancel && (
+            <button type="button" onClick={onCancel} className="w-full text-sm text-neutral-500 hover:underline">
+              Cancel
+            </button>
+          )}
+        </form>
+      )}
     </div>
   );
 }
